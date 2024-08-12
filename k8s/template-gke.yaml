@@ -1,0 +1,160 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ${CI_ENVIRONMENT_SLUG}
+  namespace: ${KUBE_NAMESPACE}
+  annotations:
+    app.gitlab.com/app: ${CI_PROJECT_PATH_SLUG}
+    app.gitlab.com/env: ${CI_ENVIRONMENT_SLUG}
+spec:
+  replicas: ${CI_REPLICAS}
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: ${CI_ENVIRONMENT_SLUG}
+  strategy:
+      type: RollingUpdate
+      rollingUpdate:
+        maxSurge: 1
+        maxUnavailable: 0
+  template:
+    metadata:
+      labels:
+        commit: "${CI_COMMIT_SHORT_SHA}"
+        app.kubernetes.io/name: ${CI_ENVIRONMENT_SLUG}
+    spec:
+      imagePullSecrets:
+        - name: gitlab-registry-${CI_PROJECT_PATH_SLUG}
+      containers:
+        - name: app
+          image: ${CI_APPLICATION_REPOSITORY}
+          imagePullPolicy: Always
+          resources:
+            requests:
+              memory: "1000Mi"
+              cpu: "500m"
+            limits:
+              memory: "2000Mi"
+              cpu: "1000m"
+          command: ["/bin/sh"]
+          args: ["-c", "gunicorn app:app -w 2 -t 2 --log-level=info --capture-output --enable-stdio-inheritance -b :80 --reload --worker-class gevent --timeout 600 "]
+          livenessProbe:
+            failureThreshold: 3
+            httpGet:
+              path: /healthz
+              port: 80
+              scheme: HTTP
+            initialDelaySeconds: 60
+            periodSeconds: 60
+            successThreshold: 1
+            timeoutSeconds: 60
+          readinessProbe:
+            failureThreshold: 3
+            httpGet:
+              path: /healthz
+              port: 80
+              scheme: HTTP
+            initialDelaySeconds: 60
+            periodSeconds: 60
+            successThreshold: 2
+            timeoutSeconds: 60
+          lifecycle:
+            preStop:
+              exec:
+                command: ["sleep", "30"]   
+
+---
+apiVersion: networking.gke.io/v1
+kind: ManagedCertificate
+metadata:
+  name: ${KUBE_NAMESPACE}
+  namespace: ${KUBE_NAMESPACE}
+spec:
+  domains:
+    - ${WWW}${CI_TLS_HOST}
+${CERT}
+---
+apiVersion: networking.gke.io/v1beta1
+kind: FrontendConfig
+metadata:
+  name: ${CI_ENVIRONMENT_SLUG}
+  namespace: ${KUBE_NAMESPACE}
+spec:
+  redirectToHttps:
+    enabled: true
+---
+apiVersion: cloud.google.com/v1
+kind: BackendConfig
+metadata:
+  name: ${CI_ENVIRONMENT_SLUG}
+  namespace: ${KUBE_NAMESPACE}
+spec:
+  healthCheck:
+    checkIntervalSec: 15
+    port: 80
+    type: HTTP
+    requestPath: /healthz
+  sessionAffinity:
+    affinityType: "GENERATED_COOKIE"
+    affinityCookieTtlSec: 50
+  cdn:
+    enabled: false
+    cachePolicy:
+      includeHost: true
+      includeProtocol: true
+      includeQueryString: false
+  timeoutSec: 900
+  connectionDraining:
+    drainingTimeoutSec: 60
+  customResponseHeaders:
+    headers:
+      - "Strict-Transport-Security: max-age=31536000; includeSubDomains"
+      - "X-Frame-Options: SAMEORIGIN"
+      - "X-Content-Type-Options: nosniff"
+      - "Content-Security-Policy: frame-ancestors ${CI_TLS_HOST}"
+      - "Referrer-Policy: no-referrer"
+      - "X-XSS-Protection: 1; mode=block"
+      - "Feature-Policy: fullscreen \'self\' https://${CI_TLS_HOST}; geolocation *; camera *"
+      - "Permissions-Policy: fullscreen=(self \"https://${CI_TLS_HOST}\"), geolocation=*, camera=()"
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ${CI_ENVIRONMENT_SLUG}
+  namespace: ${KUBE_NAMESPACE}
+  labels:
+    app.kubernetes.io/name: ${CI_ENVIRONMENT_SLUG}
+  annotations:
+    app.gitlab.com/app: ${CI_PROJECT_PATH_SLUG}
+    app.gitlab.com/env: ${CI_ENVIRONMENT_SLUG}
+    cloud.google.com/backend-config: '{"default": "${CI_ENVIRONMENT_SLUG}"}'
+    cloud.google.com/neg: '{"ingress": true}'
+spec:
+  selector:
+    app.kubernetes.io/name: ${CI_ENVIRONMENT_SLUG}
+  type: ClusterIP
+  ports:
+  - name: http
+    port: 80
+    protocol: TCP
+    targetPort: 80
+
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: ${CI_ENVIRONMENT_SLUG}-gce
+  namespace: ${KUBE_NAMESPACE}
+  annotations:
+    kubernetes.io/ingress.class: "gce"
+    kubernetes.io/ingress.global-static-ip-name: "${IP_ADDRESS_NAME}"
+    networking.gke.io/managed-certificates: ${KUBE_NAMESPACE}
+spec:
+  defaultBackend:
+    service:
+      name: ${CI_ENVIRONMENT_SLUG}
+      port:
+        number: 80
+
+---
+
