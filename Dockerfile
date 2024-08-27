@@ -7,7 +7,6 @@ ENV GOOGLE_APPLICATION_CREDENTIALS=$GOOGLE_APPLICATION_CREDENTIALS \
     API_KEY=$API_KEY
 
 WORKDIR /usr/src/app
-COPY .env.example .env
 COPY . .
 RUN apt-get update
 RUN pip install --upgrade pip
