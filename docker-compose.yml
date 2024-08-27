@@ -7,6 +7,13 @@ services:
       dockerfile: Dockerfile
     image: ocr
     container_name: ocr
+    environment:
+      GOOGLE_APPLICATION_CREDENTIALS: "your_value"
+      PROJECT_ID: "your_value"
+      LOCATION_ID: "your_value"
+      PROCESSOR_ID: "your_value"
+      MODEL_VERSION: "your_value"
+      API_KEY: "your_value"
     restart: unless-stopped
     ports:
       - "8000:8000"
