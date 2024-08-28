@@ -1,3 +1,4 @@
+[![Docker CI](https://github.com/arakattack/ocr-transcript/actions/workflows/docker-image.yml/badge.svg)](https://github.com/arakattack/ocr-transcript/actions/workflows/docker-image.yml)
 # OCR Transcript
 
 ## Description
